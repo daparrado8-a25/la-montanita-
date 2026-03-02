@@ -369,7 +369,7 @@ function ModalVisita({ cliente, visitaExistente, onClose, onGuardar }) {
               onChange={e=>{ const v=parseInt(e.target.value)||1; setCantidad(v>0?v:1); }}
               style={{width:64,padding:'12px 8px',borderRadius:14,border:'2.5px solid '+(![1,2,3,4].includes(cantidad)?'var(--azul)':'#E5E9F2'),
                 background:![1,2,3,4].includes(cantidad)?'var(--azul-light)':'var(--gris)',
-                fontSize:20,fontWeight:900,fontFamily:"'Space Mono',monospace",textAlign:'center',
+                fontSize:20,fontWeight:900,fontFamily:'Space Mono,monospace',textAlign:'center',
                 color:![1,2,3,4].includes(cantidad)?'var(--azul)':'var(--texto)',outline:'none',flexShrink:0}}
             />
           </div>
@@ -827,7 +827,7 @@ function VendedorApp({ user, onLogout }) {
                     onClick={()=>{ if(!v) setClienteSel(c); }}>
                     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
                       <div style={{display:'flex',alignItems:'center',gap:8,flex:1}}>
-                        <span style={{flexShrink:0,background:'var(--azul)',color:'white',borderRadius:8,padding:'2px 8px',fontSize:12,fontWeight:900,fontFamily:"'Space Mono',monospace"}}>{c.orden||'?'}</span>
+                        <span style={{flexShrink:0,background:'var(--azul)',color:'white',borderRadius:8,padding:'2px 8px',fontSize:12,fontWeight:900,fontFamily:'Space Mono,monospace'}}>{c.orden||'?'}</span>
                         <span className="cliente-nombre">{c.nombre}</span>
                       </div>
                       {c.telefono &&
@@ -870,7 +870,7 @@ function VendedorApp({ user, onLogout }) {
                           </div>
                           <button
                             onClick={e=>{ e.stopPropagation(); setClienteSel(c); }}
-                            style={{flexShrink:0,background:'var(--naranja)',color:'white',border:'none',borderRadius:10,padding:'8px 12px',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:"'Nunito',sans-serif"}}>
+                            style={{flexShrink:0,background:'var(--naranja)',color:'white',border:'none',borderRadius:10,padding:'8px 12px',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:'Nunito,sans-serif'}}>
                             Editar visita
                           </button>
                         </div>
@@ -1009,7 +1009,7 @@ function AdminApp({ onLogout }) {
                 <div key={c.id} className="admin-cliente">
                   <div className="admin-cliente-info">
                     <div className="admin-cliente-nombre">
-                      <span style={{color:'var(--azul)',fontFamily:"'Space Mono',monospace",marginRight:6,fontSize:12}}>#{c.orden||'?'}</span>
+                      <span style={{color:'var(--azul)',fontFamily:'Space Mono,monospace',marginRight:6,fontSize:12}}>#{c.orden||'?'}</span>
                       {c.nombre}
                     </div>
                     <div className="admin-cliente-ruta">
@@ -1020,7 +1020,7 @@ function AdminApp({ onLogout }) {
                   </div>
                   <button className="btn-editar" onClick={()=>setClienteEdit(c)}>Editar</button>
                   <button onClick={()=>setClienteAEliminar(c)}
-                    style={{background:'var(--rojo-light)',color:'var(--rojo)',border:'none',borderRadius:10,padding:'8px 12px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:"'Nunito',sans-serif",flexShrink:0}}>
+                    style={{background:'var(--rojo-light)',color:'var(--rojo)',border:'none',borderRadius:10,padding:'8px 12px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'Nunito,sans-serif',flexShrink:0}}>
                     Eliminar
                   </button>
                 </div>
