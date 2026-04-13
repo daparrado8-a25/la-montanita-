@@ -7,6 +7,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<!-- Leaflet.js para mapa interactivo -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 :root{
@@ -131,6 +134,15 @@ body{font-family:'Nunito',sans-serif;background:#F0F4FF;color:var(--texto);min-h
 .badm-r{border-color:var(--rojo);background:var(--rojo-light);color:var(--rojo);}
 .hoy-box{margin-top:10px;background:var(--gris);border-radius:10px;padding:10px 12px;}
 .border-num{flex-shrink:0;background:var(--azul);color:white;border-radius:8px;padding:2px 8px;font-size:12px;font-weight:900;font-family:'Space Mono',monospace;}
+/* ── ESTILOS GEOLOCALIZACION Y MAPA ── */
+.btn-geo{width:100%;padding:14px;border-radius:12px;border:2px solid var(--verde);background:var(--verde-light);color:var(--verde);font-size:14px;font-weight:800;cursor:pointer;font-family:'Nunito',sans-serif;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:8px;}
+.btn-geo:active{transform:scale(0.97);}
+.btn-geo.ok{background:var(--verde);color:white;}
+.geo-info{background:var(--verde-light);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--verde);font-weight:700;margin-bottom:12px;}
+.btn-llegar{flex-shrink:0;background:var(--verde);color:white;border:none;border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;text-decoration:none;cursor:pointer;}
+#mapa-ruta{height:calc(100vh - 130px);width:100%;border-radius:0;}
+.mapa-wrap{position:relative;}
+.mapa-legend{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:1000;background:white;border-radius:14px;padding:10px 18px;box-shadow:0 4px 20px rgba(0,0,0,0.15);font-size:12px;font-weight:700;color:var(--gris-dark);white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -532,22 +544,57 @@ function ModalHistorial(p) {
   );
 }
 
-/* ── MODAL CLIENTE ── */
+/* ── MODAL CLIENTE (con campos de geolocalización) ── */
 function ModalCliente(p) {
   var cl=p.cliente;
-  var _f=us({nombre:cl?cl.nombre:'',ruta:cl?cl.ruta:'',orden:cl?cl.orden:0,precio:cl?cl.precio:5000,
-    telefono:cl?cl.telefono||'':'',deuda_actual:cl?cl.deuda_actual:0,botellones_prestados:cl?cl.botellones_prestados:0,neveras:cl?cl.neveras:0});
+  var _f=us({
+    nombre:cl?cl.nombre:'', ruta:cl?cl.ruta:'', orden:cl?cl.orden:0, precio:cl?cl.precio:5000,
+    telefono:cl?cl.telefono||'':'', deuda_actual:cl?cl.deuda_actual:0,
+    botellones_prestados:cl?cl.botellones_prestados:0, neveras:cl?cl.neveras:0,
+    /* NUEVOS campos de ubicacion */
+    direccion:cl?cl.direccion||'':'',
+    referencia_ubicacion:cl?cl.referencia_ubicacion||'':'',
+    latitud:cl?cl.latitud||null:null,
+    longitud:cl?cl.longitud||null:null,
+  });
   var f=_f[0],sF=_f[1];
   var _sv=us(false); var sv=_sv[0],sSv=_sv[1];
+  /* Estado para el boton de ubicacion */
+  var _geo=us(cl&&cl.latitud?'ok':'idle'); var geo=_geo[0],sGeo=_geo[1];
 
   function set(k,v){sF(function(x){var n=Object.assign({},x);n[k]=v;return n;});}
+
+  /* Capturar ubicacion GPS del celular */
+  function tomarUbicacion(){
+    if(!navigator.geolocation){alert('Tu navegador no soporta GPS');return;}
+    sGeo('cargando');
+    navigator.geolocation.getCurrentPosition(
+      function(pos){
+        set('latitud', pos.coords.latitude);
+        set('longitud', pos.coords.longitude);
+        sGeo('ok');
+      },
+      function(err){
+        sGeo('idle');
+        alert('No se pudo obtener la ubicacion. Verifica que el GPS este activo.');
+      },
+      {enableHighAccuracy:true, timeout:10000}
+    );
+  }
 
   async function guardar(){
     if(!f.nombre||!f.ruta)return;
     sSv(true);
-    await p.onGuardar({nombre:f.nombre,ruta:f.ruta,orden:parseInt(f.orden)||0,precio:parseInt(f.precio)||5000,
-      telefono:f.telefono||null,deuda_actual:parseInt(f.deuda_actual)||0,
-      botellones_prestados:parseInt(f.botellones_prestados)||0,neveras:parseInt(f.neveras)||0});
+    await p.onGuardar({
+      nombre:f.nombre, ruta:f.ruta, orden:parseInt(f.orden)||0, precio:parseInt(f.precio)||5000,
+      telefono:f.telefono||null, deuda_actual:parseInt(f.deuda_actual)||0,
+      botellones_prestados:parseInt(f.botellones_prestados)||0, neveras:parseInt(f.neveras)||0,
+      /* Guardar campos de ubicacion */
+      direccion:f.direccion||null,
+      referencia_ubicacion:f.referencia_ubicacion||null,
+      latitud:f.latitud||null,
+      longitud:f.longitud||null,
+    });
     sSv(false);
   }
 
@@ -579,9 +626,144 @@ function ModalCliente(p) {
           h('input',{className:'fi',type:c.t,value:f[c.k],onChange:function(e){set(c.k,e.target.value);}})
         );
       }),
+      /* ── SECCION UBICACION ── */
+      h('div',{className:'div'}),
+      h('div',{style:{fontWeight:800,fontSize:13,color:'var(--texto)',marginBottom:12}},'Ubicacion del cliente'),
+      /* Direccion */
+      h('div',{className:'fg'},
+        h('label',{className:'fl'},'Direccion'),
+        h('input',{className:'fi',type:'text',placeholder:'Ej: Cra 5 #12-34, Barrio El Centro',value:f.direccion,onChange:function(e){set('direccion',e.target.value);}})
+      ),
+      /* Referencia */
+      h('div',{className:'fg'},
+        h('label',{className:'fl'},'Referencia de ubicacion (opcional)'),
+        h('input',{className:'fi',type:'text',placeholder:'Ej: Casa azul frente al parque',value:f.referencia_ubicacion,onChange:function(e){set('referencia_ubicacion',e.target.value);}})
+      ),
+      /* Boton GPS */
+      h('button',{
+        className:'btn-geo'+(geo==='ok'?' ok':''),
+        onClick:tomarUbicacion,
+        disabled:geo==='cargando'
+      },
+        geo==='cargando'?'Obteniendo GPS...':
+        geo==='ok'?'GPS capturado - Tomar de nuevo':
+        'Tomar ubicacion actual (GPS)'
+      ),
+      /* Mostrar coordenadas capturadas */
+      f.latitud&&f.longitud?h('div',{className:'geo-info'},
+        'GPS: '+Number(f.latitud).toFixed(6)+', '+Number(f.longitud).toFixed(6)
+      ):null,
       h('button',{className:'btn-g',onClick:guardar,disabled:sv},sv?'Guardando...':'Guardar'),
       h('button',{className:'btn-c',onClick:p.onClose},'Cancelar')
     )
+  );
+}
+
+/* ── MAPA DE CLIENTES (Leaflet + OpenStreetMap) ── */
+function MapaRuta(p) {
+  /* p.clientes: lista de clientes con latitud/longitud
+     p.ruta: nombre de la ruta
+     p.onBack: funcion para volver */
+  var mapaId = 'mapa-ruta';
+
+  ue(function(){
+    /* Esperar a que el DOM este listo y Leaflet disponible */
+    if(typeof L === 'undefined') return;
+
+    /* Filtrar solo clientes con coordenadas */
+    var conUbicacion = p.clientes.filter(function(c){return c.latitud&&c.longitud;});
+    if(conUbicacion.length===0) return;
+
+    /* Limpiar instancia anterior si existe */
+    var contenedor = document.getElementById(mapaId);
+    if(!contenedor) return;
+    if(contenedor._leaflet_id) {
+      contenedor._leaflet_id = null;
+      contenedor.innerHTML = '';
+    }
+
+    /* Calcular centro automatico con el promedio de todas las coordenadas */
+    var latSum=0, lngSum=0;
+    conUbicacion.forEach(function(c){latSum+=parseFloat(c.latitud);lngSum+=parseFloat(c.longitud);});
+    var centroLat = latSum/conUbicacion.length;
+    var centroLng = lngSum/conUbicacion.length;
+
+    /* Inicializar mapa */
+    var mapa = L.map(mapaId).setView([centroLat, centroLng], 15);
+
+    /* Capa de tiles OpenStreetMap (gratuita, sin API key) */
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      attribution:'OpenStreetMap',
+      maxZoom:19
+    }).addTo(mapa);
+
+    /* Icono personalizado por color segun deuda */
+    function crearIcono(color){
+      return L.divIcon({
+        html:'<div style="background:'+color+';width:32px;height:32px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);"></div>',
+        iconSize:[32,32], iconAnchor:[16,32], popupAnchor:[0,-36], className:''
+      });
+    }
+
+    /* Agregar marcador por cada cliente con ubicacion */
+    conUbicacion.forEach(function(c){
+      var color = c.deuda_actual>0?'#FF9500':'#00C853';
+      var marcador = L.marker([parseFloat(c.latitud), parseFloat(c.longitud)], {icon:crearIcono(color)});
+
+      /* Popup con info del cliente */
+      var popupHTML =
+        '<div style="font-family:Nunito,sans-serif;min-width:180px;">'+
+        '<div style="font-weight:900;font-size:14px;margin-bottom:4px;">#'+(c.orden||'?')+' '+c.nombre+'</div>'+
+        (c.direccion?'<div style="font-size:12px;color:#666;margin-bottom:4px;">'+c.direccion+'</div>':'')+
+        (c.referencia_ubicacion?'<div style="font-size:11px;color:#888;margin-bottom:6px;">'+c.referencia_ubicacion+'</div>':'')+
+        '<div style="font-size:12px;margin-bottom:6px;">'+
+          (c.deuda_actual>0?'<span style="color:#FF9500;font-weight:700;">Debe $'+Number(c.deuda_actual).toLocaleString('es-CO')+'</span>':
+          '<span style="color:#00C853;font-weight:700;">Al dia</span>')+
+        '</div>'+
+        '<a href="https://www.google.com/maps/dir/?api=1&destination='+c.latitud+','+c.longitud+'" '+
+        'target="_blank" style="display:block;background:#0066FF;color:white;border-radius:8px;padding:6px 12px;'+
+        'font-size:12px;font-weight:800;text-decoration:none;text-align:center;">Como llegar</a>'+
+        '</div>';
+
+      marcador.bindPopup(popupHTML).addTo(mapa);
+    });
+
+    /* Ajustar zoom para mostrar todos los marcadores */
+    if(conUbicacion.length>1){
+      var bounds = L.latLngBounds(conUbicacion.map(function(c){return [parseFloat(c.latitud),parseFloat(c.longitud)];}));
+      mapa.fitBounds(bounds, {padding:[40,40]});
+    }
+
+    return function(){ mapa.remove(); };
+  }, [p.clientes]);
+
+  var conUbicacion = p.clientes.filter(function(c){return c.latitud&&c.longitud;});
+  var sinUbicacion = p.clientes.filter(function(c){return !c.latitud||!c.longitud;});
+
+  return h('div',null,
+    h('div',{className:'header'},
+      h('div',null,
+        h('div',{className:'header-title'},'Mapa de '+p.ruta),
+        h('div',{className:'header-sub'},conUbicacion.length+' clientes en el mapa')
+      ),
+      h('button',{className:'btn-back',onClick:p.onBack},'Volver')
+    ),
+    conUbicacion.length===0
+      ? h('div',{className:'page'},
+          h('div',{className:'empty'},
+            h('div',{className:'empty-ic'},'📍'),
+            'Ningun cliente tiene ubicacion guardada.',
+            h('br',null),
+            'Edita los clientes y usa el boton GPS para agregar su ubicacion.'
+          )
+        )
+      : h('div',{className:'mapa-wrap'},
+          h('div',{id:mapaId,style:{height:'calc(100vh - 130px)',width:'100%'}}),
+          h('div',{className:'mapa-legend'},
+            conUbicacion.length+' con GPS',
+            sinUbicacion.length>0?' | '+sinUbicacion.length+' sin GPS':''
+          )
+        )
   );
 }
 
@@ -597,6 +779,8 @@ function Vendedor(p) {
   var _ct=us({});    var ct=_ct[0],sCt=_ct[1];
   var _vt=us('p');   var vt=_vt[0],sVt=_vt[1];
   var _sn=us(false); var sn=_sn[0],sSn=_sn[1];
+  /* Estado para mostrar el mapa de la ruta */
+  var _vm=us(false); var vm=_vm[0],sVm=_vm[1];
 
   ue(function(){
     (async function(){
@@ -637,6 +821,9 @@ function Vendedor(p) {
   var vis2=cl.filter(function(c){return !!vi[c.id];});
   var lista=vt==='p'?pend:vis2;
 
+  /* Mostrar mapa si se activo */
+  if(vm) return h(MapaRuta,{clientes:cl,ruta:rs,onBack:function(){sVm(false);}});
+
   if(!rs) return h('div',null,
     h('div',{className:'header'},h('div',null,h('div',{className:'header-title'},'Ruta del Agua'),h('div',{className:'header-sub'},'Hola, '+usr.nombre)),h('button',{className:'btn-back',onClick:p.onLogout},'Salir')),
     h('div',{className:'page'},h('div',{className:'card'},h('div',{className:'card-titulo'},'Cual ruta trabajas hoy?'),h('div',{className:'ruta-grid'},
@@ -647,7 +834,11 @@ function Vendedor(p) {
   return h('div',null,
     h('div',{className:'header'},
       h('div',null,h('div',{className:'header-title'},rs),h('div',{className:'header-sub'},vis2.length+'/'+cl.length+' visitados')),
-      h('button',{className:'btn-back',onClick:function(){sRs(null);}},'Rutas')
+      h('div',{style:{display:'flex',gap:8}},
+        /* Boton ver mapa de la ruta */
+        h('button',{className:'btn-back',onClick:function(){sVm(true);},style:{fontSize:18,padding:'8px 10px'}},'🗺️'),
+        h('button',{className:'btn-back',onClick:function(){sRs(null);}},'Rutas')
+      )
     ),
     h('div',{className:'page'},
       vArr.length>0?h(ResumenDia,{visitas:vArr}):null,
@@ -670,7 +861,15 @@ function Vendedor(p) {
               h('span',{className:'border-num'},c.orden||'?'),
               h('span',{className:'cli-nombre'},c.nombre)
             ),
-            c.telefono?h('a',{href:'tel:'+c.telefono,onClick:function(e){e.stopPropagation();},style:{flexShrink:0,background:'var(--verde)',color:'white',borderRadius:10,width:36,height:36,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,textDecoration:'none'}},'📞'):null
+            c.telefono?h('a',{href:'tel:'+c.telefono,onClick:function(e){e.stopPropagation();},style:{flexShrink:0,background:'var(--verde)',color:'white',borderRadius:10,width:36,height:36,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,textDecoration:'none'}},'📞'):null,
+            /* Boton Como llegar - abre Google Maps con las coordenadas del cliente */
+            c.latitud&&c.longitud?h('a',{
+              href:'https://www.google.com/maps/dir/?api=1&destination='+c.latitud+','+c.longitud,
+              target:'_blank',
+              onClick:function(e){e.stopPropagation();},
+              className:'btn-llegar',
+              title:'Como llegar'
+            },'🗺️'):null
           ),
           h('div',{className:'cli-tags'},
             h('span',{className:'tag tga'},fmt(c.precio)),
@@ -740,7 +939,8 @@ function Admin(p) {
       h('div',{className:'tabs'},
         h('button',{className:'tab'+(tab==='hoy'?' active':''),onClick:function(){sTab('hoy');}},'Hoy'),
         h('button',{className:'tab'+(tab==='clientes'?' active':''),onClick:function(){sTab('clientes');}},'Clientes'),
-        h('button',{className:'tab'+(tab==='vendedores'?' active':''),onClick:function(){sTab('vendedores');}},'Vendedores')
+        h('button',{className:'tab'+(tab==='vendedores'?' active':''),onClick:function(){sTab('vendedores');}},'Vendedores'),
+        h('button',{className:'tab'+(tab==='mapa'?' active':''),onClick:function(){sTab('mapa');},style:{fontSize:11}},'Mapa')
       ),
       h('div',{className:'badm'},
         h('button',{className:'badm-btn badm-h',onClick:function(){sSh(true);}},'Historial por Fechas'),
@@ -785,6 +985,11 @@ function Admin(p) {
           );
         })
       ):
+      tab==='mapa'?h(MapaRuta,{
+        clientes:cl,
+        ruta:'Todos los clientes',
+        onBack:function(){sTab('hoy');}
+      }):
       h('div',{className:'card'},
         h('div',{className:'card-titulo'},'Vendedores - resumen de hoy'),
         vd.map(function(v){
