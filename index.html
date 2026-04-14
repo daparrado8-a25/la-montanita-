@@ -171,7 +171,7 @@ async function sb(table, method, body, query) {
 }
 
 var fmt  = function(n){ return '$'+Number(n||0).toLocaleString('es-CO'); };
-var hoy  = function(){ return new Date().toISOString().split('T')[0]; };
+var hoy  = function(){ return new Date().toLocaleDateString('en-CA'); };
 var noop = function(){};
 
 /* ── PDF ── */
