@@ -258,6 +258,7 @@ function Numpad(p) {
 /* ── RESUMEN DIA ── */
 function ResumenDia(p) {
   var V=p.visitas;
+  var G=p.gastos||[];  /* gastos opcionales */
   var rec=0,fiad=0,efe=0,tra=0,bv=0,bf=0,bp=0;
   V.forEach(function(v){
     rec+=v.pago_monto||0; fiad+=v.monto_fiado||0;
@@ -267,6 +268,8 @@ function ResumenDia(p) {
     if(v.fue_fiado) bf+=v.cantidad_botellones||1;
     if(v.presto_botellon) bp++;
   });
+  var totalGastos=G.reduce(function(s,g){return s+(g.valor||0);},0);
+  var aEntregar=rec-totalGastos;
   return h('div',null,
     h('div',{className:'card'},
       h('div',{className:'card-titulo'},'Botellones del dia'),
@@ -282,7 +285,15 @@ function ResumenDia(p) {
       h('div',{className:'fd'},h('span',{style:{fontWeight:700}},'Efectivo'),h('span',{style:{fontWeight:900,color:'var(--verde)'}},fmt(efe))),
       h('div',{className:'fd'},h('span',{style:{fontWeight:700}},'Transferencias'),h('span',{style:{fontWeight:900,color:'var(--azul)'}},fmt(tra))),
       h('div',{className:'fd'},h('span',{style:{fontWeight:700}},'Fiado'),h('span',{style:{fontWeight:900,color:'var(--naranja)'}},fmt(fiad))),
-      h('div',{className:'fd'},h('span',{style:{fontWeight:900,fontSize:15}},'TOTAL RECAUDADO'),h('span',{style:{fontWeight:900,fontSize:20,color:'var(--azul)'}},fmt(rec)))
+      h('div',{className:'fd'},h('span',{style:{fontWeight:900,fontSize:15}},'TOTAL RECAUDADO'),h('span',{style:{fontWeight:900,fontSize:20,color:'var(--azul)'}},fmt(rec))),
+      /* Mostrar gastos y dinero a entregar si hay gastos */
+      totalGastos>0?h('div',null,
+        h('div',{className:'fd'},h('span',{style:{fontWeight:700,color:'var(--rojo)'}},'Gastos del dia'),h('span',{style:{fontWeight:900,color:'var(--rojo)'}},'-'+fmt(totalGastos))),
+        h('div',{style:{background:aEntregar>=0?'var(--verde-light)':'var(--rojo-light)',borderRadius:10,padding:'10px 14px',marginTop:8,display:'flex',justifyContent:'space-between',alignItems:'center'}},
+          h('span',{style:{fontWeight:900,fontSize:14,color:aEntregar>=0?'var(--verde)':'var(--rojo)'}},'DINERO A ENTREGAR'),
+          h('span',{style:{fontWeight:900,fontSize:20,color:aEntregar>=0?'var(--verde)':'var(--rojo)'}},fmt(aEntregar))
+        )
+      ):null
     )
   );
 }
@@ -297,26 +308,42 @@ function ModalVisita(p) {
   var _ab=us('');     var ab=_ab[0],sab=_ab[1];
   var _pr=us(ve?ve.presto_botellon:false); var pr=_pr[0],spr=_pr[1];
   var _sv=us(false);  var sv=_sv[0],ssv=_sv[1];
+  /* Estados devolucion de botellones */
+  var _dv=us(false);  var dv=_dv[0],sDv=_dv[1];
+  var _cdv=us(1);     var cdv=_cdv[0],sCdv=_cdv[1];
+  /* Estados pago parcial (pago mixto) */
+  var _pp=us(false);  var pp=_pp[0],sPp=_pp[1];
+  var _ppag=us(1);    var ppag=_ppag[0],sPpag=_ppag[1];
   var esEd=!!ve;
 
   var valBot=cn*cl.precio;
   var aboN=parseInt(ab)||0;
-  var pag=(tp==='efectivo'||tp==='transferencia')?valBot:0;
+  /* Pago parcial: si activo, paga ppag botellones y fia el resto */
+  var valPagado = pp ? ppag*cl.precio : ((tp==='efectivo'||tp==='transferencia')?valBot:0);
+  var valFiado  = pp ? (cn-ppag)*cl.precio : (db&&tp==='fiado'?valBot:0);
+  var pag = valPagado;
   var total=pag+(ha?aboN:0);
-  var fiado=db&&tp==='fiado';
+  var fiado=pp ? true : (db&&tp==='fiado');
   var dBase=esEd?cl.deuda_actual+(ve.fue_fiado?(ve.monto_fiado||0):0)+(ve.abono||0):cl.deuda_actual;
-  var nuevaD=Math.max(0,dBase+(fiado?valBot:0)-(ha?aboN:0));
-  var ok=db===false||(db===true&&tp!==null);
+  var nuevaD=Math.max(0,dBase+valFiado-(ha?aboN:0));
+  var ok=db===false||(db===true&&(tp!==null||pp));
 
   async function guardar(){
     if(!ok)return;
     ssv(true);
+    /* Calcular nuevos botellones prestados */
+    var prestadosAct = cl.botellones_prestados + (pr?1:0) - (dv?cdv:0);
+    /* Tipo de pago real */
+    var tipoPagoReal = pp ? 'efectivo' : (tp||'efectivo');
+    var montoFiadoReal = pp ? valFiado : (fiado?valBot:0);
     await p.onGuardar({
       dejo_botellon:db||false, cantidad_botellones:db?cn:0,
-      pago_monto:total, tipo_pago:tp||'efectivo',
-      fue_fiado:fiado||false, monto_fiado:fiado?valBot:0,
+      pago_monto:total, tipo_pago:tipoPagoReal,
+      fue_fiado:fiado||false, monto_fiado:montoFiadoReal,
+      pago_parcial:pp, cant_pagada:pp?ppag:null, cant_fiada:pp?(cn-ppag):null,
       abono:ha?aboN:0, presto_botellon:pr,
-      nuevaDeuda:nuevaD, nuevosPrestados:cl.botellones_prestados+(pr?1:0)
+      devolvio_botellon:dv, cantidad_devuelta:dv?cdv:0,
+      nuevaDeuda:nuevaD, nuevosPrestados:Math.max(0,prestadosAct)
     });
     ssv(false);
   }
@@ -368,10 +395,36 @@ function ModalVisita(p) {
         ),
         h('div',{className:'ilabel'},'Como pago?'),
         h('div',{className:'orow'},
-          h('button',{className:'obtn'+(tp==='efectivo'?' sv':''),onClick:function(){stp('efectivo');}},'Efectivo'),
-          h('button',{className:'obtn'+(tp==='fiado'?' sn':''),onClick:function(){stp('fiado');}},'Fiado'),
-          h('button',{className:'obtn'+(tp==='transferencia'?' sa':''),onClick:function(){stp('transferencia');}},'Transferencia')
-        )
+          h('button',{className:'obtn'+(tp==='efectivo'?' sv':''),onClick:function(){stp('efectivo');sPp(false);}},'Efectivo'),
+          h('button',{className:'obtn'+(tp==='fiado'?' sn':''),onClick:function(){stp('fiado');sPp(false);}},'Fiado'),
+          h('button',{className:'obtn'+(tp==='transferencia'?' sa':''),onClick:function(){stp('transferencia');sPp(false);}},'Transferencia')
+        ),
+        /* Opcion pago parcial: solo visible si dejo botellon, icono (!) discreto */
+        h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:16}},
+          h('button',{
+            onClick:function(){sPp(function(x){return !x;});},
+            style:{background:pp?'var(--naranja)':'var(--gris)',color:pp?'white':'var(--gris-dark)',
+              border:'none',borderRadius:10,padding:'6px 12px',fontSize:12,fontWeight:800,
+              cursor:'pointer',fontFamily:'Nunito,sans-serif'}
+          }, pp?'Pago mixto activo':'! Pago mixto (paga parte, fia parte)'),
+          pp?h('div',{style:{fontSize:11,color:'var(--naranja)',fontWeight:600}},'opcional'):null
+        ),
+        /* Si pago mixto activo: pide cantidad pagada y cantidad fiada */
+        pp?h('div',{style:{background:'var(--naranja-light)',borderRadius:12,padding:'12px 14px',marginBottom:12}},
+          h('div',{className:'ilabel',style:{marginBottom:8}},'Botellones que PAGA ahora'),
+          h('div',{style:{display:'flex',gap:8,marginBottom:10,alignItems:'center'}},
+            [1,2,3].map(function(n){
+              return n<cn?h('button',{key:n,className:'obtn'+(ppag===n?' sv':''),onClick:function(){sPpag(n);},style:{fontSize:16,fontWeight:900,flex:1,padding:'10px 4px'}},n):null;
+            }),
+            h('input',{type:'number',min:1,max:cn-1,value:ppag,
+              onChange:function(e){var v=parseInt(e.target.value)||1;sPpag(Math.max(1,Math.min(v,cn-1)));},
+              style:{width:56,padding:'8px',borderRadius:10,border:'2.5px solid var(--verde)',
+                background:'var(--verde-light)',fontSize:16,fontWeight:900,
+                fontFamily:'Space Mono,monospace',textAlign:'center',outline:'none',flexShrink:0}})
+          ),
+          h('div',{style:{fontSize:12,color:'var(--naranja)',fontWeight:700}},
+            'Paga '+(ppag)+' bot. = '+fmt(ppag*cl.precio)+' | Fia '+(cn-ppag)+' bot. = '+fmt((cn-ppag)*cl.precio))
+        ):null
       ):null,
       /* abono */
       cl.deuda_actual>0?h('div',null,
@@ -386,13 +439,34 @@ function ModalVisita(p) {
           h('input',{type:'number',className:'imonto',placeholder:'0',value:ab,onChange:function(e){sab(e.target.value);}})
         ):null
       ):null,
-      /* presto */
+      /* presto y devolucion */
       h('div',{className:'div'}),
       h('div',{className:'ilabel'},'Prestaste botellon vacio?'),
       h('div',{className:'orow'},
         h('button',{className:'obtn'+(!pr?' sv':''),onClick:function(){spr(false);}},'No'),
         h('button',{className:'obtn'+(pr?' sr':''),onClick:function(){spr(true);}},'Si preste')
       ),
+      /* Devolucion - solo visible si el cliente tiene botellones prestados */
+      cl.botellones_prestados>0?h('div',null,
+        h('div',{className:'ilabel'},'Devolvio botellones? (tiene '+cl.botellones_prestados+' prestado(s))'),
+        h('div',{className:'orow'},
+          h('button',{className:'obtn'+(!dv?' sv':''),onClick:function(){sDv(false);sCdv(cl.botellones_prestados);}},'No devolvio'),
+          h('button',{className:'obtn'+(dv?' sa':''),onClick:function(){sDv(true);}},'Si devolvio')
+        ),
+        dv?h('div',null,
+          h('div',{className:'ilabel'},'Cuantos devolvio?'),
+          h('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:16}},
+            [1,2,3].map(function(n){
+              return n<=cl.botellones_prestados?h('button',{key:n,className:'obtn'+(cdv===n?' sa':''),onClick:function(){sCdv(n);},style:{fontSize:18,fontWeight:900,flex:1,padding:'12px 4px'}},n):null;
+            }),
+            h('input',{type:'number',min:1,max:cl.botellones_prestados,value:cdv,
+              onChange:function(e){var v=parseInt(e.target.value)||1;sCdv(Math.min(v,cl.botellones_prestados));},
+              style:{width:64,padding:'10px 8px',borderRadius:12,border:'2.5px solid var(--azul)',
+                background:'var(--azul-light)',fontSize:18,fontWeight:900,
+                fontFamily:'Space Mono,monospace',textAlign:'center',outline:'none',flexShrink:0}})
+          )
+        ):null
+      ):null,
       /* resumen */
       (total>0||db!==null)?h('div',{className:'rcobro'},
         h('div',null,
@@ -767,6 +841,144 @@ function MapaRuta(p) {
   );
 }
 
+/* ── MODAL CONFIGURAR CARGUE DE BOTELLONES ── */
+function ModalCargue(p) {
+  var _nuevo=us('');   var nuevo=_nuevo[0],sNuevo=_nuevo[1];
+  var _sv=us(false);   var sv=_sv[0],sSv=_sv[1];
+
+  /* Calcular botellones anteriores que vienen del turno anterior */
+  var anteriores = p.actual || 0;
+
+  function confirmar(){
+    var cant = parseInt(nuevo)||0;
+    if(cant<=0){alert('Ingresa una cantidad valida');return;}
+    /* Sumar botellones anteriores + nuevo cargue */
+    var total = anteriores + cant;
+    p.onGuardar(total);
+  }
+
+  return h('div',{className:'overlay',onClick:function(e){if(e.target===e.currentTarget)p.onClose();}},
+    h('div',{className:'modal'},
+      h('div',{className:'mhandle'}),
+      h('div',{className:'mtitulo'},'Configurar cargue'),
+      h('div',{className:'msub'},'Registra cuantos botellones cargas hoy'),
+      /* Mostrar anteriores si hay */
+      anteriores>0?h('div',{style:{background:'var(--azul-light)',borderRadius:12,padding:'12px 16px',marginBottom:16}},
+        h('div',{style:{fontSize:13,fontWeight:700,color:'var(--azul)'}},'Botellones anteriores en el vehiculo:'),
+        h('div',{style:{fontSize:26,fontWeight:900,color:'var(--azul)',fontFamily:'Space Mono,monospace'}},anteriores)
+      ):null,
+      h('div',{className:'ilabel'},'Nuevo cargue de hoy (botellones que subes ahora)'),
+      h('input',{
+        type:'number',min:0,max:200,className:'imonto',
+        placeholder:'0',value:nuevo,
+        onChange:function(e){sNuevo(e.target.value);}
+      }),
+      /* Mostrar total resultante */
+      parseInt(nuevo)>0?h('div',{style:{background:'var(--verde-light)',borderRadius:12,padding:'14px 16px',marginTop:12,marginBottom:4}},
+        h('div',{style:{fontSize:13,fontWeight:700,color:'var(--verde)'}},'Total disponible:'),
+        h('div',{style:{fontSize:28,fontWeight:900,color:'var(--verde)',fontFamily:'Space Mono,monospace'}},
+          anteriores+(parseInt(nuevo)||0)+' botellones'
+        ),
+        anteriores>0?h('div',{style:{fontSize:12,color:'var(--verde)',marginTop:4}},
+          anteriores+' anteriores + '+(parseInt(nuevo)||0)+' nuevos'
+        ):null
+      ):null,
+      h('button',{className:'btn-g',onClick:confirmar},'Confirmar cargue'),
+      /* Opcion reiniciar a cero */
+      h('button',{className:'btn-c',onClick:function(){p.onGuardar(0);},style:{marginTop:8,color:'var(--rojo)'}},
+        'Reiniciar a cero (sin botellones)'
+      ),
+      h('button',{className:'btn-c',onClick:p.onClose},'Cancelar')
+    )
+  );
+}
+
+/* ── MODAL GASTOS DEL DIA ── */
+function ModalGastos(p) {
+  var _gastos=us([]); var gastos=_gastos[0],sGastos=_gastos[1];
+  var _desc=us('');   var desc=_desc[0],sDesc=_desc[1];
+  var _val=us('');    var val=_val[0],sVal=_val[1];
+  var _ld=us(true);   var ld=_ld[0],sLd=_ld[1];
+
+  /* Cargar gastos del dia al abrir */
+  ue(function(){
+    (async function(){
+      var data=await sb('gastos','GET',null,'?fecha=eq.'+hoy()+'&vendedor_id=eq.'+p.vendorId+'&order=created_at.desc');
+      sGastos(data||[]);
+      sLd(false);
+    })();
+  },[]);
+
+  async function agregar(){
+    var v=parseInt(val)||0;
+    if(!desc||v<=0){alert('Ingresa descripcion y valor');return;}
+    var hora=new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
+    var nuevo=await sb('gastos','POST',{
+      vendedor_id:p.vendorId, fecha:hoy(),
+      descripcion:desc, valor:v, hora:hora
+    });
+    if(nuevo&&nuevo[0])sGastos(function(prev){return [nuevo[0]].concat(prev);});
+    sDesc('');sVal('');
+  }
+
+  async function eliminar(id){
+    await sb('gastos','DELETE',null,'?id=eq.'+id);
+    sGastos(function(prev){return prev.filter(function(g){return g.id!==id;});});
+  }
+
+  var totalGastos=gastos.reduce(function(s,g){return s+(g.valor||0);},0);
+  var totalRec=p.visitas.reduce(function(s,v){return s+(v.pago_monto||0);},0);
+  var aEntregar=totalRec-totalGastos;
+
+  return h('div',{className:'overlay',onClick:function(e){if(e.target===e.currentTarget)p.onClose();}},
+    h('div',{className:'modal',style:{maxHeight:'95vh'}},
+      h('div',{className:'mhandle'}),
+      h('div',{className:'mtitulo'},'Gastos del dia'),
+      /* Resumen financiero */
+      h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:16}},
+        h('div',{style:{background:'var(--verde-light)',borderRadius:12,padding:'12px',textAlign:'center'}},
+          h('div',{style:{fontSize:14,fontWeight:900,color:'var(--verde)'}},fmt(totalRec)),
+          h('div',{style:{fontSize:10,fontWeight:700,color:'var(--verde)'}},'+RECAUDADO')
+        ),
+        h('div',{style:{background:'var(--rojo-light)',borderRadius:12,padding:'12px',textAlign:'center'}},
+          h('div',{style:{fontSize:14,fontWeight:900,color:'var(--rojo)'}},fmt(totalGastos)),
+          h('div',{style:{fontSize:10,fontWeight:700,color:'var(--rojo)'}},'-GASTOS')
+        ),
+        h('div',{style:{background:aEntregar>=0?'var(--azul-light)':'var(--rojo-light)',borderRadius:12,padding:'12px',textAlign:'center'}},
+          h('div',{style:{fontSize:14,fontWeight:900,color:aEntregar>=0?'var(--azul)':'var(--rojo)'}},fmt(aEntregar)),
+          h('div',{style:{fontSize:10,fontWeight:700,color:aEntregar>=0?'var(--azul)':'var(--rojo)'}},aEntregar>=0?'=A ENTREGAR':'=FALTANTE')
+        )
+      ),
+      h('div',{className:'div'}),
+      /* Formulario nuevo gasto */
+      h('div',{className:'ilabel'},'Registrar nuevo gasto'),
+      h('input',{className:'fi',type:'text',placeholder:'Descripcion (ej: gasolina, almuerzo)',
+        value:desc,onChange:function(e){sDesc(e.target.value);},style:{marginBottom:8}}),
+      h('input',{type:'number',className:'imonto',placeholder:'Valor $',
+        value:val,onChange:function(e){sVal(e.target.value);},style:{marginBottom:8}}),
+      h('button',{className:'btn-g',onClick:agregar,style:{marginTop:0}},'+ Agregar gasto'),
+      h('div',{className:'div'}),
+      /* Lista de gastos */
+      ld?h('div',{style:{textAlign:'center',padding:20,color:'var(--gris-dark)'}},'Cargando...'):
+      gastos.length===0?h('div',{className:'empty',style:{padding:'16px 0'}},h('div',{className:'empty-ic'},'💰'),'Sin gastos registrados hoy'):
+      gastos.map(function(g){
+        return h('div',{key:g.id,className:'hi',style:{alignItems:'center'}},
+          h('div',{style:{flex:1}},
+            h('div',{style:{fontWeight:800,fontSize:13}},g.descripcion),
+            h('div',{style:{fontSize:11,color:'var(--gris-dark)',fontWeight:600}},g.hora||'')
+          ),
+          h('div',{style:{fontWeight:900,color:'var(--rojo)',fontSize:14,marginRight:8}},fmt(g.valor)),
+          h('button',{onClick:function(){eliminar(g.id);},
+            style:{background:'var(--rojo-light)',color:'var(--rojo)',border:'none',borderRadius:8,
+              padding:'4px 10px',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:'Nunito,sans-serif'}
+          },'x')
+        );
+      }),
+      h('button',{className:'btn-c',style:{marginTop:16},onClick:p.onClose},'Cerrar')
+    )
+  );
+}
+
 /* ── VENDEDOR ── */
 function Vendedor(p) {
   var usr=p.user;
@@ -781,6 +993,12 @@ function Vendedor(p) {
   var _sn=us(false); var sn=_sn[0],sSn=_sn[1];
   /* Estado para mostrar el mapa de la ruta */
   var _vm=us(false); var vm=_vm[0],sVm=_vm[1];
+  /* Control de cargue de botellones en vehiculo */
+  var _cargue=us(null);  var cargue=_cargue[0],sCargue=_cargue[1];
+  var _scargue=us(false);var scargue=_scargue[0],sScargue=_scargue[1];
+  /* Gastos del dia */
+  var _sg=us(false); var sg=_sg[0],sSg=_sg[1];
+  var _gd=us([]);    var gd=_gd[0],sGastosDia=_gd[1];
 
   ue(function(){
     (async function(){
@@ -797,6 +1015,11 @@ function Vendedor(p) {
     sCl((todos||[]).filter(function(c){return c.ruta===ruta;}));
     var vis=await sb('visitas','GET',null,'?fecha=eq.'+hoy()+'&vendedor_id=eq.'+usr.id);
     var map={};(vis||[]).forEach(function(v){map[v.cliente_id]=v;});sVi(map);
+    /* Cargar gastos del dia para el resumen */
+    try{
+      var gas=await sb('gastos','GET',null,'?fecha=eq.'+hoy()+'&vendedor_id=eq.'+usr.id);
+      sGastosDia(gas||[]);
+    }catch(e){ /* tabla puede no existir aun */ }
     sLd(false);
   }
 
@@ -813,6 +1036,10 @@ function Vendedor(p) {
     await sb('clientes','PATCH',{deuda_actual:data.nuevaDeuda,botellones_prestados:data.nuevosPrestados},'?id=eq.'+c.id);
     sVi(function(prev){var n=Object.assign({},prev);n[c.id]=saved;return n;});
     sCl(function(prev){return prev.map(function(x){return x.id===c.id?Object.assign({},x,{deuda_actual:data.nuevaDeuda,botellones_prestados:data.nuevosPrestados}):x;});});
+    /* Descontar del cargue los botellones vendidos */
+    if(data.dejo_botellon && cargue!==null){
+      sCargue(function(prev){return Math.max(0,(prev||0)-(data.cantidad_botellones||1));});
+    }
     sCs(null);
   }
 
@@ -835,13 +1062,31 @@ function Vendedor(p) {
     h('div',{className:'header'},
       h('div',null,h('div',{className:'header-title'},rs),h('div',{className:'header-sub'},vis2.length+'/'+cl.length+' visitados')),
       h('div',{style:{display:'flex',gap:8}},
+        /* Boton gastos del dia */
+        h('button',{className:'btn-back',onClick:function(){sSg(true);},style:{fontSize:18,padding:'8px 10px'}},'💰'),
         /* Boton ver mapa de la ruta */
         h('button',{className:'btn-back',onClick:function(){sVm(true);},style:{fontSize:18,padding:'8px 10px'}},'🗺️'),
         h('button',{className:'btn-back',onClick:function(){sRs(null);}},'Rutas')
       )
     ),
     h('div',{className:'page'},
-      vArr.length>0?h(ResumenDia,{visitas:vArr}):null,
+      /* Banner de cargue de botellones - visible siempre en ruta activa */
+      h('div',{style:{background:cargue===null?'var(--gris)':cargue<=3?'var(--rojo-light)':cargue<=6?'var(--naranja-light)':'var(--verde-light)',
+          borderRadius:14,padding:'12px 16px',marginBottom:14,
+          display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer'},
+          onClick:function(){sScargue(true);}},
+        h('div',null,
+          h('div',{style:{fontSize:11,fontWeight:800,color:'var(--gris-dark)',marginBottom:2}},'BOTELLONES EN EL VEHICULO'),
+          h('div',{style:{fontSize:22,fontWeight:900,fontFamily:'Space Mono,monospace',
+            color:cargue===null?'var(--gris-dark)':cargue<=3?'var(--rojo)':cargue<=6?'var(--naranja)':'var(--verde)'}},
+            cargue===null?'Toca para configurar cargue':
+            cargue===0?'Sin botellones - Recargar':
+            'Te quedan '+cargue+' botellones'
+          )
+        ),
+        h('div',{style:{fontSize:24}}, cargue===null?'📦':cargue===0?'🔴':cargue<=3?'🟠':'🟢')
+      ),
+      vArr.length>0?h(ResumenDia,{visitas:vArr,gastos:gd}):null,
       h('button',{className:'btn-nv',onClick:function(){sSn(true);}},'+  Nuevo cliente en esta ruta'),
       h('div',{className:'sub-tabs'},
         h('button',{className:'sub-tab'+(vt==='p'?' ap':''),onClick:function(){sVt('p');}},'Pendientes ('+pend.length+')'),
@@ -883,7 +1128,8 @@ function Vendedor(p) {
                 h('div',{style:{fontSize:11,fontWeight:800,color:'var(--gris-dark)',marginBottom:4}},'HOY'),
                 h('div',{style:{fontSize:13,fontWeight:700,color:'var(--texto)'}},v.dejo_botellon?(v.cantidad_botellones||1)+' botellon(es)':'No dejo botellon'),
                 h('div',{style:{fontSize:12,fontWeight:700,marginTop:2,color:cclr}},ctxt),
-                v.presto_botellon?h('div',{style:{fontSize:11,color:'var(--rojo)',fontWeight:700,marginTop:2}},'Presto botellon vacio'):null
+                v.presto_botellon?h('div',{style:{fontSize:11,color:'var(--rojo)',fontWeight:700,marginTop:2}},'Presto botellon vacio'):null,
+                v.devolvio_botellon?h('div',{style:{fontSize:11,color:'var(--verde)',fontWeight:700,marginTop:2}},'Devolvio '+v.cantidad_devuelta+' botellon(es)'):null
               ),
               h('button',{onClick:function(e){e.stopPropagation();sCs(c);},style:{flexShrink:0,background:'var(--naranja)',color:'white',border:'none',borderRadius:10,padding:'8px 12px',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:'Nunito,sans-serif'}},'Editar visita')
             )
@@ -896,7 +1142,20 @@ function Vendedor(p) {
       var nv=await sb('clientes','POST',Object.assign({},datos,{activo:true}));
       if(nv&&nv[0])sCl(function(prev){return prev.concat([nv[0]]).sort(function(a,b){return (a.orden||0)-(b.orden||0);});});
       sSn(false);
-    }}):null
+    }}):null,
+    /* Modal configurar cargue de botellones */
+    scargue?h(ModalCargue,{
+      actual:cargue,
+      vendorId:usr.id,
+      onClose:function(){sScargue(false);},
+      onGuardar:function(total){sCargue(total);sScargue(false);}
+    }):null,
+    /* Modal gastos del dia */
+    sg?h(ModalGastos,{
+      vendorId:usr.id,
+      visitas:vArr,
+      onClose:function(){sSg(false);}
+    }):null
   );
 }
 
