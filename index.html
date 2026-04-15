@@ -558,12 +558,25 @@ function ModalHistorial(p) {
     sLd(true);
     var q='?fecha=gte.'+fi+'&fecha=lte.'+ff;
     if(cid) q+='&cliente_id=eq.'+cid;
-    sRes(await sb('visitas','GET',null,q+'&order=fecha.asc')||[]);
+    sRes(await sb('visitas','GET',null,q+'&order=fecha.asc,created_at.asc')||[]);
     sLd(false);
   }
 
-  var totR=0,totF=0,totB=0,totBF=0;
-  if(res){res.forEach(function(v){totR+=v.pago_monto||0;totF+=v.monto_fiado||0;if(v.dejo_botellon)totB+=v.cantidad_botellones||1;if(v.fue_fiado)totBF+=v.cantidad_botellones||1;});}
+  var totR=0,totF=0,totB=0,totBF=0,totParcPag=0,totParcFia=0;
+  if(res){
+    res.forEach(function(v){
+      /* Pago: solo contar el cobro real, no el fiado */
+      totR+=v.pago_monto||0;
+      /* Fiado: acumulado de lo que se fio */
+      totF+=v.monto_fiado||0;
+      /* Botellones entregados: contar TODOS incluyendo fiados */
+      if(v.dejo_botellon) totB+=v.cantidad_botellones||1;
+      /* Botellones fiados especificamente */
+      if(v.fue_fiado) totBF+=v.cantidad_botellones||1;
+      /* Pago parcial */
+      if(v.pago_parcial){totParcPag+=v.cant_pagada||0;totParcFia+=v.cant_fiada||0;}
+    });
+  }
   var clS=cid?p.clientes.find(function(c){return String(c.id)===String(cid);}):null;
 
   return h('div',{className:'overlay',onClick:function(e){if(e.target===e.currentTarget)p.onClose();}},
@@ -587,11 +600,27 @@ function ModalHistorial(p) {
           h('div',{style:{fontSize:12,color:'var(--azul)',marginTop:4}},clS.ruta+' - Precio: '+fmt(clS.precio)+' - Deuda: '+fmt(clS.deuda_actual))
         ):null,
         h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}},
-          h('div',{style:{background:'var(--verde-light)',borderRadius:12,padding:'14px',textAlign:'center'}},h('div',{style:{fontSize:26,fontWeight:900,color:'var(--verde)'}},totB),h('div',{style:{fontSize:11,fontWeight:700,color:'var(--verde)'}},'BOT. ENTREGADOS')),
-          h('div',{style:{background:'var(--naranja-light)',borderRadius:12,padding:'14px',textAlign:'center'}},h('div',{style:{fontSize:26,fontWeight:900,color:'var(--naranja)'}},totBF),h('div',{style:{fontSize:11,fontWeight:700,color:'var(--naranja)'}},'BOT. FIADOS')),
-          h('div',{style:{background:'var(--azul-light)',borderRadius:12,padding:'14px',textAlign:'center'}},h('div',{style:{fontSize:18,fontWeight:900,color:'var(--azul)'}},fmt(totR)),h('div',{style:{fontSize:11,fontWeight:700,color:'var(--azul)'}},'RECAUDADO')),
-          h('div',{style:{background:'var(--rojo-light)',borderRadius:12,padding:'14px',textAlign:'center'}},h('div',{style:{fontSize:18,fontWeight:900,color:'var(--rojo)'}},fmt(totF)),h('div',{style:{fontSize:11,fontWeight:700,color:'var(--rojo)'}},'FIADO'))
+          h('div',{style:{background:'var(--verde-light)',borderRadius:12,padding:'14px',textAlign:'center'}},
+            h('div',{style:{fontSize:26,fontWeight:900,color:'var(--verde)'}},totB),
+            h('div',{style:{fontSize:11,fontWeight:700,color:'var(--verde)'}},'BOT. ENTREGADOS')
+          ),
+          h('div',{style:{background:'var(--naranja-light)',borderRadius:12,padding:'14px',textAlign:'center'}},
+            h('div',{style:{fontSize:26,fontWeight:900,color:'var(--naranja)'}},totBF),
+            h('div',{style:{fontSize:11,fontWeight:700,color:'var(--naranja)'}},'BOT. FIADOS')
+          ),
+          h('div',{style:{background:'var(--azul-light)',borderRadius:12,padding:'14px',textAlign:'center'}},
+            h('div',{style:{fontSize:18,fontWeight:900,color:'var(--azul)'}},fmt(totR)),
+            h('div',{style:{fontSize:11,fontWeight:700,color:'var(--azul)'}},'RECAUDADO')
+          ),
+          h('div',{style:{background:'var(--rojo-light)',borderRadius:12,padding:'14px',textAlign:'center'}},
+            h('div',{style:{fontSize:18,fontWeight:900,color:'var(--rojo)'}},fmt(totF)),
+            h('div',{style:{fontSize:11,fontWeight:700,color:'var(--rojo)'}},'TOTAL FIADO')
+          )
         ),
+        /* Nota de consistencia para el admin */
+        totB>0?h('div',{style:{background:'var(--gris)',borderRadius:10,padding:'10px 14px',marginBottom:10,fontSize:12,color:'var(--gris-dark)',fontWeight:600}},
+          'Nota: Entregados = vendidos ('+( totB-totBF)+') + fiados ('+totBF+')'
+        ):null,
         h('div',{style:{fontWeight:700,fontSize:13,color:'var(--gris-dark)',marginBottom:10}},res.length+' visitas encontradas'),
         res.length===0?h('div',{className:'empty'},h('div',{className:'empty-ic'},'📋'),'Sin registros'):
         res.map(function(v){
@@ -625,6 +654,8 @@ function ModalCliente(p) {
     nombre:cl?cl.nombre:'', ruta:cl?cl.ruta:'', orden:cl?cl.orden:0, precio:cl?cl.precio:5000,
     telefono:cl?cl.telefono||'':'', deuda_actual:cl?cl.deuda_actual:0,
     botellones_prestados:cl?cl.botellones_prestados:0, neveras:cl?cl.neveras:0,
+    fecha_prestamo_nevera:cl?cl.fecha_prestamo_nevera||'':'',
+    proximo_mantenimiento:cl?cl.proximo_mantenimiento||'':'',
     /* NUEVOS campos de ubicacion */
     direccion:cl?cl.direccion||'':'',
     referencia_ubicacion:cl?cl.referencia_ubicacion||'':'',
@@ -663,6 +694,8 @@ function ModalCliente(p) {
       nombre:f.nombre, ruta:f.ruta, orden:parseInt(f.orden)||0, precio:parseInt(f.precio)||5000,
       telefono:f.telefono||null, deuda_actual:parseInt(f.deuda_actual)||0,
       botellones_prestados:parseInt(f.botellones_prestados)||0, neveras:parseInt(f.neveras)||0,
+      fecha_prestamo_nevera:f.fecha_prestamo_nevera||null,
+      proximo_mantenimiento:f.proximo_mantenimiento||null,
       /* Guardar campos de ubicacion */
       direccion:f.direccion||null,
       referencia_ubicacion:f.referencia_ubicacion||null,
@@ -679,7 +712,9 @@ function ModalCliente(p) {
     {k:'telefono',l:'Telefono (opcional)',t:'text'},
     {k:'deuda_actual',l:'Deuda actual ($)',t:'number'},
     {k:'botellones_prestados',l:'Botellones prestados',t:'number'},
-    {k:'neveras',l:'Neveras prestadas',t:'number'},
+    {k:'neveras',l:'Neveras prestadas (cantidad)',t:'number'},
+    {k:'fecha_prestamo_nevera',l:'Fecha inicio prestamo nevera',t:'date'},
+    {k:'proximo_mantenimiento',l:'Proximo mantenimiento nevera',t:'date'},
   ];
 
   return h('div',{className:'overlay',onClick:function(e){if(e.target===e.currentTarget)p.onClose();}},
@@ -838,6 +873,116 @@ function MapaRuta(p) {
             sinUbicacion.length>0?' | '+sinUbicacion.length+' sin GPS':''
           )
         )
+  );
+}
+
+/* ── HISTORIAL DE DEUDA POR CLIENTE ── */
+function ModalHistorialDeuda(p) {
+  var _hist=us([]); var hist=_hist[0],sHist=_hist[1];
+  var _ld=us(true);  var ld=_ld[0],sLd=_ld[1];
+
+  ue(function(){
+    (async function(){
+      var data=await sb('visitas','GET',null,
+        '?cliente_id=eq.'+p.cliente.id+
+        '&order=fecha.desc,created_at.desc&limit=60');
+      sHist(data||[]);
+      sLd(false);
+    })();
+  },[]);
+
+  /* Totales del historial visible */
+  var totEntregado = hist.filter(function(v){return v.dejo_botellon;})
+    .reduce(function(s,v){return s+(v.cantidad_botellones||1);},0);
+  var totFiado   = hist.reduce(function(s,v){return s+(v.monto_fiado||0);},0);
+  var totPagado  = hist.reduce(function(s,v){return s+(v.pago_monto||0);},0);
+  var totPrestados = hist.filter(function(v){return v.presto_botellon;}).length;
+
+  return h('div',{className:'overlay',onClick:function(e){if(e.target===e.currentTarget)p.onClose();}},
+    h('div',{className:'modal',style:{maxHeight:'95vh'}},
+      h('div',{className:'mhandle'}),
+      h('div',{className:'mtitulo'},'Historial de deuda'),
+      h('div',{className:'msub'},p.cliente.nombre+' - '+p.cliente.ruta),
+      /* Estado actual */
+      h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:16}},
+        h('div',{style:{background:p.cliente.deuda_actual>0?'var(--naranja-light)':'var(--verde-light)',
+            borderRadius:12,padding:'12px',textAlign:'center'}},
+          h('div',{style:{fontSize:20,fontWeight:900,
+            color:p.cliente.deuda_actual>0?'var(--naranja)':'var(--verde)'}},
+            fmt(p.cliente.deuda_actual)),
+          h('div',{style:{fontSize:10,fontWeight:700,
+            color:p.cliente.deuda_actual>0?'var(--naranja)':'var(--verde)'}},
+            'SALDO ACTUAL')
+        ),
+        h('div',{style:{background:'var(--rojo-light)',borderRadius:12,padding:'12px',textAlign:'center'}},
+          h('div',{style:{fontSize:20,fontWeight:900,color:'var(--rojo)'}},
+            p.cliente.botellones_prestados||0),
+          h('div',{style:{fontSize:10,fontWeight:700,color:'var(--rojo)'}},'BOT. PRESTADOS')
+        ),
+        h('div',{style:{background:'var(--azul-light)',borderRadius:12,padding:'12px',textAlign:'center'}},
+          h('div',{style:{fontSize:18,fontWeight:900,color:'var(--azul)'}},totEntregado),
+          h('div',{style:{fontSize:10,fontWeight:700,color:'var(--azul)'}},'ENTREGADOS')
+        ),
+        h('div',{style:{background:'var(--verde-light)',borderRadius:12,padding:'12px',textAlign:'center'}},
+          h('div',{style:{fontSize:18,fontWeight:900,color:'var(--verde)'}},fmt(totPagado)),
+          h('div',{style:{fontSize:10,fontWeight:700,color:'var(--verde)'}},'TOTAL PAGADO')
+        )
+      ),
+      /* Lista de visitas */
+      ld?h('div',{style:{textAlign:'center',padding:20,color:'var(--gris-dark)'}},'Cargando...'):
+      hist.length===0
+        ?h('div',{className:'empty',style:{padding:'20px 0'}},
+            h('div',{className:'empty-ic'},'📋'),'Sin registros')
+        :hist.map(function(v){
+            /* Armar lineas de detalle */
+            var lineas=[];
+            if(v.dejo_botellon) lineas.push({
+              txt:(v.cantidad_botellones||1)+' bot. entregado(s)',
+              col:'var(--azul)'
+            });
+            if(v.fue_fiado) lineas.push({
+              txt:'Fiado: '+fmt(v.monto_fiado||0),
+              col:'var(--naranja)'
+            });
+            if(v.pago_monto>0&&!v.fue_fiado) lineas.push({
+              txt:'Pago: '+fmt(v.pago_monto)+' ('+( v.tipo_pago||'efectivo')+')',
+              col:'var(--verde)'
+            });
+            if(v.pago_monto>0&&v.fue_fiado) lineas.push({
+              txt:'Cobrado: '+fmt(v.pago_monto),
+              col:'var(--verde)'
+            });
+            if(v.abono>0) lineas.push({
+              txt:'Abono a deuda: '+fmt(v.abono),
+              col:'var(--verde)'
+            });
+            if(v.presto_botellon) lineas.push({
+              txt:'Presto botellon vacio',
+              col:'var(--rojo)'
+            });
+            if(v.devolvio_botellon) lineas.push({
+              txt:'Devolvio '+(v.cantidad_devuelta||1)+' botellon(es)',
+              col:'var(--verde)'
+            });
+            if(v.pago_parcial) lineas.push({
+              txt:'Pago mixto: pago '+(v.cant_pagada||0)+' / fio '+(v.cant_fiada||0),
+              col:'var(--naranja)'
+            });
+
+            return h('div',{key:v.id,
+              style:{background:'white',borderRadius:12,padding:'12px 14px',marginBottom:8,
+                boxShadow:'0 2px 8px rgba(0,0,0,0.06)',borderLeft:'3px solid var(--azul-light)'}},
+              h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}},
+                h('div',{style:{fontWeight:800,fontSize:12,color:'var(--gris-dark)'}},v.fecha),
+                v.pago_monto>0?h('div',{style:{fontWeight:900,fontSize:14,color:'var(--verde)'}},fmt(v.pago_monto)):null
+              ),
+              lineas.map(function(l,i){
+                return h('div',{key:i,style:{fontSize:12,fontWeight:700,color:l.col,marginBottom:2}},l.txt);
+              })
+            );
+          }),
+      h('button',{className:'btn-c',style:{marginTop:16},onClick:p.onClose},'Cerrar')
+    )
   );
 }
 
@@ -1410,7 +1555,8 @@ function Admin(p) {
   var _nc=us(false);var nc=_nc[0],sNc=_nc[1];
   var _sr=us(false);var sr=_sr[0],sSr=_sr[1];
   var _sh=us(false);var sh=_sh[0],sSh=_sh[1];
-  var _ea=us(null); var ea=_ea[0],sEa=_ea[1];
+  var _ea=us(null);  var ea=_ea[0],sEa=_ea[1];
+  var _chd=us(null); var chd=_chd[0],sChd=_chd[1]; /* historial deuda cliente */
 
   ue(function(){
     (async function(){
@@ -1438,7 +1584,8 @@ function Admin(p) {
         h('button',{className:'tab'+(tab==='clientes'?' active':''),onClick:function(){sTab('clientes');}},'Clientes'),
         h('button',{className:'tab'+(tab==='vendedores'?' active':''),onClick:function(){sTab('vendedores');}},'Vendedores'),
         h('button',{className:'tab'+(tab==='mapa'?' active':''),onClick:function(){sTab('mapa');},style:{fontSize:11}},'Mapa'),
-        h('button',{className:'tab'+(tab==='inventario'?' active':''),onClick:function(){sTab('inventario');},style:{fontSize:11}},'📦 Bodega')
+        h('button',{className:'tab'+(tab==='inventario'?' active':''),onClick:function(){sTab('inventario');},style:{fontSize:11}},'📦 Bodega'),
+        h('button',{className:'tab'+(tab==='neveras'?' active':''),onClick:function(){sTab('neveras');},style:{fontSize:11}},'❄️ Neveras')
       ),
       h('div',{className:'badm'},
         h('button',{className:'badm-btn badm-h',onClick:function(){sSh(true);}},'Historial por Fechas'),
@@ -1468,20 +1615,80 @@ function Admin(p) {
       ):
       tab==='clientes'?h('div',null,
         h('button',{className:'btn-nv',onClick:function(){sNc(true);}},'+  Nuevo cliente'),
-        h('input',{type:'text',className:'sbox',placeholder:'Buscar por nombre o ruta...',value:bq,onChange:function(e){sBq(e.target.value);}}),
-        h('div',{style:{fontSize:13,color:'var(--gris-dark)',fontWeight:700,marginBottom:10}},clf.length+' clientes'),
-        clf.map(function(c){
-          return h('div',{key:c.id,className:'acli'},
-            h('div',{className:'acli-info'},
-              h('div',{className:'acli-nom'},h('span',{style:{color:'var(--azul)',fontFamily:'Space Mono,monospace',marginRight:6,fontSize:12}},'#'+(c.orden||'?')),c.nombre),
-              h('div',{className:'acli-ruta'},c.ruta+' - '+fmt(c.precio)+(c.deuda_actual>0?' - Debe '+fmt(c.deuda_actual):'')+(c.botellones_prestados>0?' - '+c.botellones_prestados+' prest.':''))
-            ),
-            h('div',{style:{display:'flex',gap:6,flexShrink:0}},
-              h('button',{className:'btn-ed',onClick:function(){sCe(c);}},'Editar'),
-              h('button',{className:'btn-el',onClick:function(){sEa(c);}},'Eliminar')
-            )
-          );
-        })
+        /* Buscador con icono lupa */
+        h('div',{style:{position:'relative',marginBottom:14}},
+          h('span',{style:{position:'absolute',left:14,top:'50%',transform:'translateY(-50%)',fontSize:18,pointerEvents:'none'}},'🔍'),
+          h('input',{type:'text',className:'sbox',
+            style:{paddingLeft:44,marginBottom:0},
+            placeholder:'Buscar por nombre o ruta...',
+            value:bq,onChange:function(e){sBq(e.target.value);}})
+        ),
+        h('div',{style:{fontSize:13,color:'var(--gris-dark)',fontWeight:700,marginBottom:12}},clf.length+' clientes'),
+        /* Agrupar por ruta y ordenar clientes por orden dentro de cada ruta */
+        (function(){
+          /* Obtener rutas unicas ordenadas */
+          var rutasUnicas = [];
+          clf.forEach(function(c){
+            if(rutasUnicas.indexOf(c.ruta)===-1) rutasUnicas.push(c.ruta);
+          });
+          rutasUnicas.sort();
+          /* Si hay busqueda activa no agrupar, mostrar plano */
+          if(bq.trim()){
+            return clf.sort(function(a,b){
+              if(a.ruta<b.ruta)return -1;
+              if(a.ruta>b.ruta)return 1;
+              return (a.orden||0)-(b.orden||0);
+            }).map(function(c){
+              return h('div',{key:c.id,className:'acli'},
+                h('div',{className:'acli-info'},
+                  h('div',{className:'acli-nom'},
+                    h('span',{style:{color:'var(--azul)',fontFamily:'Space Mono,monospace',marginRight:6,fontSize:12}},'#'+(c.orden||'?')),
+                    c.nombre
+                  ),
+                  h('div',{className:'acli-ruta'},c.ruta+' - '+fmt(c.precio)+
+                    (c.deuda_actual>0?' - Debe '+fmt(c.deuda_actual):'')+
+                    (c.botellones_prestados>0?' - '+c.botellones_prestados+' prest.':''))
+                ),
+                h('div',{style:{display:'flex',gap:6,flexShrink:0,flexWrap:'wrap',justifyContent:'flex-end'}},
+                  h('button',{className:'btn-ed',onClick:function(){sChd(c);},style:{background:'var(--naranja-light)',color:'var(--naranja)'}},'Historial'),
+                  h('button',{className:'btn-ed',onClick:function(){sCe(c);}},'Editar'),
+                  h('button',{className:'btn-el',onClick:function(){sEa(c);}},'Eliminar')
+                )
+              );
+            });
+          }
+          /* Sin busqueda: agrupar por ruta */
+          return rutasUnicas.map(function(ruta){
+            var clientesRuta = clf.filter(function(c){return c.ruta===ruta;})
+              .sort(function(a,b){return (a.orden||0)-(b.orden||0);});
+            return h('div',{key:ruta},
+              /* Cabecera de ruta */
+              h('div',{style:{background:'var(--azul)',borderRadius:10,padding:'8px 14px',
+                  marginBottom:8,display:'flex',justifyContent:'space-between',alignItems:'center'}},
+                h('span',{style:{fontWeight:800,fontSize:13,color:'white'}},ruta),
+                h('span',{style:{fontSize:12,color:'rgba(255,255,255,0.75)',fontWeight:600}},clientesRuta.length+' clientes')
+              ),
+              clientesRuta.map(function(c){
+                return h('div',{key:c.id,className:'acli'},
+                  h('div',{className:'acli-info'},
+                    h('div',{className:'acli-nom'},
+                      h('span',{style:{color:'var(--azul)',fontFamily:'Space Mono,monospace',marginRight:6,fontSize:12}},'#'+(c.orden||'?')),
+                      c.nombre
+                    ),
+                    h('div',{className:'acli-ruta'},fmt(c.precio)+
+                      (c.deuda_actual>0?' - Debe '+fmt(c.deuda_actual):'')+
+                      (c.botellones_prestados>0?' - '+c.botellones_prestados+' prest.':''))
+                  ),
+                  h('div',{style:{display:'flex',gap:6,flexShrink:0,flexWrap:'wrap',justifyContent:'flex-end'}},
+                    h('button',{className:'btn-ed',onClick:function(){sChd(c);},style:{background:'var(--naranja-light)',color:'var(--naranja)'}},'Historial'),
+                    h('button',{className:'btn-ed',onClick:function(){sCe(c);}},'Editar'),
+                    h('button',{className:'btn-el',onClick:function(){sEa(c);}},'Eliminar')
+                  )
+                );
+              })
+            );
+          });
+        })()
       ):
       tab==='mapa'?h(MapaRuta,{
         clientes:cl,
@@ -1492,6 +1699,10 @@ function Admin(p) {
         vendedores:vd,
         onBack:function(){sTab('hoy');},
         onCargueAsignado:function(){}
+      }):
+      tab==='neveras'?h(MantenimientoNeveras,{
+        clientes:cl,
+        onBack:function(){sTab('hoy');}
       }):
       h('div',{className:'card'},
         h('div',{className:'card-titulo'},'Vendedores - resumen de hoy'),
@@ -1520,7 +1731,140 @@ function Admin(p) {
         sCl(function(prev){return prev.filter(function(c){return c.id!==ea.id;});});
         sEa(null);
       }
+    }):null,
+    chd?h(ModalHistorialDeuda,{
+      cliente:chd,
+      onClose:function(){sChd(null);}
     }):null
+  );
+}
+
+/* ── MANTENIMIENTO DE NEVERAS ── */
+function MantenimientoNeveras(p) {
+  /* p.clientes: lista de clientes
+     p.onBack: volver */
+  var _filtro=us('todos'); var filtro=_filtro[0],sFiltro=_filtro[1];
+
+  /* Calcular dias hasta proximo mantenimiento */
+  function diasHasta(fecha){
+    if(!fecha) return null;
+    var hoyMs = new Date(hoy()).getTime();
+    var proxMs = new Date(fecha).getTime();
+    return Math.ceil((proxMs - hoyMs)/(1000*60*60*24));
+  }
+
+  function calcProximo(fechaInicio){
+    if(!fechaInicio) return null;
+    var d = new Date(fechaInicio);
+    d.setMonth(d.getMonth()+6);
+    return d.toLocaleDateString('en-CA');
+  }
+
+  /* Solo clientes con nevera prestada */
+  var conNevera = p.clientes.filter(function(c){return (c.neveras||0)>0;});
+
+  /* Enriquecer con datos de mantenimiento */
+  var enriched = conNevera.map(function(c){
+    var proximo = c.proximo_mantenimiento || calcProximo(c.fecha_prestamo_nevera);
+    var dias = proximo ? diasHasta(proximo) : null;
+    return Object.assign({},c,{proximo_mantenimiento:proximo, dias_restantes:dias});
+  });
+
+  /* Ordenar: mas proximos primero */
+  enriched.sort(function(a,b){
+    if(a.dias_restantes===null) return 1;
+    if(b.dias_restantes===null) return -1;
+    return a.dias_restantes - b.dias_restantes;
+  });
+
+  /* Filtrar segun tab */
+  var lista = enriched.filter(function(c){
+    if(filtro==='pendientes') return c.dias_restantes!==null && c.dias_restantes<=0;
+    if(filtro==='proximos')   return c.dias_restantes!==null && c.dias_restantes>0 && c.dias_restantes<=30;
+    return true;
+  });
+
+  function colorDias(dias){
+    if(dias===null) return 'var(--gris-dark)';
+    if(dias<=0) return 'var(--rojo)';
+    if(dias<=15) return 'var(--naranja)';
+    return 'var(--verde)';
+  }
+
+  function textoDias(dias){
+    if(dias===null) return 'Sin fecha';
+    if(dias<0) return 'Vencido hace '+Math.abs(dias)+' dias';
+    if(dias===0) return 'HOY';
+    return 'En '+dias+' dias';
+  }
+
+  var pendCount  = enriched.filter(function(c){return c.dias_restantes!==null&&c.dias_restantes<=0;}).length;
+  var proxCount  = enriched.filter(function(c){return c.dias_restantes!==null&&c.dias_restantes>0&&c.dias_restantes<=30;}).length;
+
+  return h('div',null,
+    h('div',{className:'header'},
+      h('div',null,
+        h('div',{className:'header-title'},'Mantenimiento Neveras'),
+        h('div',{className:'header-sub'},conNevera.length+' neveras prestadas')
+      ),
+      h('button',{className:'btn-back',onClick:p.onBack},'Volver')
+    ),
+    h('div',{className:'page'},
+      /* Resumen rapido */
+      h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:14}},
+        h('div',{style:{background:'var(--rojo-light)',borderRadius:12,padding:'12px',textAlign:'center',cursor:'pointer'},
+            onClick:function(){sFiltro('pendientes');}},
+          h('div',{style:{fontSize:24,fontWeight:900,color:'var(--rojo)'}},pendCount),
+          h('div',{style:{fontSize:10,fontWeight:700,color:'var(--rojo)'}},'VENCIDOS')
+        ),
+        h('div',{style:{background:'var(--naranja-light)',borderRadius:12,padding:'12px',textAlign:'center',cursor:'pointer'},
+            onClick:function(){sFiltro('proximos');}},
+          h('div',{style:{fontSize:24,fontWeight:900,color:'var(--naranja)'}},proxCount),
+          h('div',{style:{fontSize:10,fontWeight:700,color:'var(--naranja)'}},'PROXIMOS 30D')
+        ),
+        h('div',{style:{background:'var(--azul-light)',borderRadius:12,padding:'12px',textAlign:'center',cursor:'pointer'},
+            onClick:function(){sFiltro('todos');}},
+          h('div',{style:{fontSize:24,fontWeight:900,color:'var(--azul)'}},conNevera.length),
+          h('div',{style:{fontSize:10,fontWeight:700,color:'var(--azul)'}},'TOTAL')
+        )
+      ),
+      /* Filtros */
+      h('div',{className:'sub-tabs'},
+        h('button',{className:'sub-tab'+(filtro==='todos'?' av':''),onClick:function(){sFiltro('todos');}},'Todos'),
+        h('button',{className:'sub-tab'+(filtro==='pendientes'?' ap':''),onClick:function(){sFiltro('pendientes');}},'Vencidos ('+pendCount+')'),
+        h('button',{className:'sub-tab'+(filtro==='proximos'?' ap':''),onClick:function(){sFiltro('proximos');}},'Proximos ('+proxCount+')')
+      ),
+      conNevera.length===0
+        ? h('div',{className:'empty'},h('div',{className:'empty-ic'},'❄️'),'Sin neveras prestadas')
+        : lista.length===0
+          ? h('div',{className:'empty'},h('div',{className:'empty-ic'},'✅'),'Sin neveras en este filtro')
+          : lista.map(function(c){
+              var diasColor = colorDias(c.dias_restantes);
+              var diasTexto = textoDias(c.dias_restantes);
+              return h('div',{key:c.id,
+                style:{background:'white',borderRadius:16,padding:'16px',marginBottom:10,
+                  boxShadow:'0 2px 12px rgba(0,0,0,0.06)',
+                  borderLeft:'4px solid '+diasColor}},
+                h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}},
+                  h('div',{style:{flex:1}},
+                    h('div',{style:{fontWeight:800,fontSize:15}},c.nombre),
+                    h('div',{style:{fontSize:12,color:'var(--gris-dark)',fontWeight:600,marginTop:2}},
+                      c.ruta+' - '+(c.neveras||0)+' nevera(s)'),
+                    c.fecha_prestamo_nevera?h('div',{style:{fontSize:12,color:'var(--gris-dark)',marginTop:4}},
+                      'Prestada desde: '+c.fecha_prestamo_nevera):null,
+                    c.proximo_mantenimiento?h('div',{style:{fontSize:12,color:'var(--gris-dark)',marginTop:2}},
+                      'Proximo mant.: '+c.proximo_mantenimiento):null
+                  ),
+                  h('div',{style:{textAlign:'right',flexShrink:0}},
+                    h('div',{style:{fontSize:13,fontWeight:900,color:diasColor}},diasTexto),
+                    c.dias_restantes!==null&&c.dias_restantes<=0
+                      ?h('div',{style:{fontSize:11,fontWeight:800,color:'var(--rojo)',marginTop:4}},'REQUIERE MANTENIMIENTO')
+                      :null
+                  )
+                )
+              );
+            })
+    )
   );
 }
 
