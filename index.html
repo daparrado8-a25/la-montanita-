@@ -841,6 +841,214 @@ function MapaRuta(p) {
   );
 }
 
+/* ── MODAL HISTORIAL DE BOTELLONES PRESTADOS ── */
+function ModalHistorialPrestados(p) {
+  /* p.cliente: objeto cliente
+     p.onClose: cerrar */
+  var _hist=us([]); var hist=_hist[0],sHist=_hist[1];
+  var _ld=us(true);  var ld=_ld[0],sLd=_ld[1];
+
+  ue(function(){
+    (async function(){
+      /* Traer visitas donde se presto o se devolvio botellon */
+      var data=await sb('visitas','GET',null,
+        '?cliente_id=eq.'+p.cliente.id+
+        '&or=(presto_botellon.eq.true,devolvio_botellon.eq.true)'+
+        '&order=fecha.desc,created_at.desc');
+      sHist(data||[]);
+      sLd(false);
+    })();
+  },[]);
+
+  return h('div',{className:'overlay',onClick:function(e){if(e.target===e.currentTarget)p.onClose();}},
+    h('div',{className:'modal',style:{maxHeight:'95vh'}},
+      h('div',{className:'mhandle'}),
+      h('div',{className:'mtitulo'},'Historial de prestamos'),
+      h('div',{className:'msub'},p.cliente.nombre),
+      /* Resumen actual */
+      h('div',{style:{background:p.cliente.botellones_prestados>0?'var(--rojo-light)':'var(--verde-light)',
+          borderRadius:12,padding:'14px 16px',marginBottom:16,display:'flex',justifyContent:'space-between',alignItems:'center'}},
+        h('div',null,
+          h('div',{style:{fontSize:12,fontWeight:700,color:'var(--gris-dark)'}},'PRESTADOS ACTUALMENTE'),
+          h('div',{style:{fontSize:28,fontWeight:900,fontFamily:'Space Mono,monospace',
+            color:p.cliente.botellones_prestados>0?'var(--rojo)':'var(--verde)'}},
+            p.cliente.botellones_prestados||0)
+        ),
+        h('div',{style:{fontSize:32}},p.cliente.botellones_prestados>0?'🫙':'✅')
+      ),
+      /* Lista historial */
+      ld?h('div',{style:{textAlign:'center',padding:20,color:'var(--gris-dark)'}},'Cargando...'):
+      hist.length===0
+        ?h('div',{className:'empty',style:{padding:'20px 0'}},
+            h('div',{className:'empty-ic'},'📋'),
+            'Sin movimientos de botellones registrados')
+        :hist.map(function(v){
+          var esPrestamo = v.presto_botellon;
+          var esDevolucion = v.devolvio_botellon;
+          var color = esPrestamo?'var(--rojo)':'var(--verde)';
+          var bg    = esPrestamo?'var(--rojo-light)':'var(--verde-light)';
+          var icono = esPrestamo?'🫙':'↩️';
+          var texto = esPrestamo
+            ? 'Prestamo de 1 botellon'
+            : 'Devolucion de '+(v.cantidad_devuelta||1)+' botellon(es)';
+          return h('div',{key:v.id,
+            style:{background:bg,borderRadius:12,padding:'12px 14px',marginBottom:8,
+              display:'flex',alignItems:'center',gap:12}},
+            h('div',{style:{fontSize:24,flexShrink:0}},icono),
+            h('div',{style:{flex:1}},
+              h('div',{style:{fontWeight:800,fontSize:13,color:color}},texto),
+              h('div',{style:{fontSize:11,color:'var(--gris-dark)',fontWeight:600,marginTop:2}},v.fecha)
+            )
+          );
+        }),
+      h('button',{className:'btn-c',style:{marginTop:16},onClick:p.onClose},'Cerrar')
+    )
+  );
+}
+
+/* ── INVENTARIO PLANTA / BODEGA ── */
+function InventarioPlanta(p) {
+  /* p.vendedores: lista de vendedores
+     p.onBack: volver
+     p.onCargueAsignado: callback cuando se asigna cargue a vendedor */
+  var _movs=us([]);    var movs=_movs[0],sMovs=_movs[1];
+  var _ld=us(true);    var ld=_ld[0],sLd=_ld[1];
+  var _entran=us('');  var entran=_entran[0],sEntran=_entran[1];
+  var _salen=us('');   var salen=_salen[0],sSalen=_salen[1];
+  var _desc=us('');    var desc=_desc[0],sDesc=_desc[1];
+  var _vidSel=us('');  var vidSel=_vidSel[0],sVidSel=_vidSel[1];
+  var _saving=us(false);var saving=_saving[0],sSaving=_saving[1];
+
+  ue(function(){
+    (async function(){
+      var data=await sb('inventario_planta','GET',null,'?order=created_at.desc&limit=30');
+      sMovs(data||[]);
+      sLd(false);
+    })();
+  },[]);
+
+  /* Calcular stock actual sumando entradas y restando salidas */
+  var stockActual = movs.reduce(function(s,m){
+    return s + (m.entran||0) - (m.salen||0);
+  },0);
+
+  async function registrar(){
+    var e=parseInt(entran)||0;
+    var s=parseInt(salen)||0;
+    if(e===0&&s===0){alert('Ingresa al menos entradas o salidas');return;}
+    if(s>0&&s>stockActual){alert('No hay suficientes botellones en planta (hay '+stockActual+')');return;}
+    sSaving(true);
+    var hora=new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
+    var mov=await sb('inventario_planta','POST',{
+      fecha:hoy(), hora:hora,
+      entran:e, salen:s,
+      descripcion:desc||null,
+      vendedor_id:vidSel?parseInt(vidSel):null,
+      stock_resultante: stockActual + e - s
+    });
+    if(mov&&mov[0]){
+      sMovs(function(prev){return [mov[0]].concat(prev);});
+      /* Si se asignaron botellones a un vendedor, notificar para actualizar cargue */
+      if(s>0&&vidSel&&p.onCargueAsignado){
+        p.onCargueAsignado(parseInt(vidSel), s);
+      }
+    }
+    sEntran('');sSalen('');sDesc('');sVidSel('');
+    sSaving(false);
+  }
+
+  return h('div',null,
+    h('div',{className:'header'},
+      h('div',null,
+        h('div',{className:'header-title'},'Inventario Planta'),
+        h('div',{className:'header-sub'},'Control de botellones en bodega')
+      ),
+      h('button',{className:'btn-back',onClick:p.onBack},'Volver')
+    ),
+    h('div',{className:'page'},
+      /* Stock actual grande y visible */
+      h('div',{style:{background:stockActual<=5?'var(--rojo-light)':stockActual<=15?'var(--naranja-light)':'var(--verde-light)',
+          borderRadius:18,padding:'20px',marginBottom:14,textAlign:'center'}},
+        h('div',{style:{fontSize:12,fontWeight:800,color:'var(--gris-dark)',marginBottom:4}},'BOTELLONES EN PLANTA AHORA'),
+        h('div',{style:{fontSize:48,fontWeight:900,fontFamily:'Space Mono,monospace',
+          color:stockActual<=5?'var(--rojo)':stockActual<=15?'var(--naranja)':'var(--verde)'}},
+          stockActual),
+        stockActual<=5?h('div',{style:{fontSize:13,fontWeight:800,color:'var(--rojo)',marginTop:4}},'STOCK BAJO - Reabastecer'):null
+      ),
+      /* Formulario nuevo movimiento */
+      h('div',{className:'card'},
+        h('div',{className:'card-titulo'},'Registrar movimiento'),
+        h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}},
+          h('div',null,
+            h('label',{className:'fl'},'Entran'),
+            h('input',{type:'number',min:0,className:'fi',placeholder:'0',
+              value:entran,onChange:function(e){sEntran(e.target.value);}})
+          ),
+          h('div',null,
+            h('label',{className:'fl'},'Salen'),
+            h('input',{type:'number',min:0,className:'fi',placeholder:'0',
+              value:salen,onChange:function(e){sSalen(e.target.value);}})
+          )
+        ),
+        /* Preview del nuevo stock */
+        (parseInt(entran)||0)-(parseInt(salen)||0)!==0
+          ?h('div',{style:{background:'var(--azul-light)',borderRadius:10,padding:'10px 14px',marginBottom:10,
+              display:'flex',justifyContent:'space-between',alignItems:'center'}},
+            h('span',{style:{fontSize:13,fontWeight:700,color:'var(--azul)'}},'Stock resultante:'),
+            h('span',{style:{fontSize:18,fontWeight:900,color:'var(--azul)',fontFamily:'Space Mono,monospace'}},
+              stockActual+(parseInt(entran)||0)-(parseInt(salen)||0))
+          ):null,
+        /* Descripcion */
+        h('div',{className:'fg'},
+          h('label',{className:'fl'},'Descripcion (opcional)'),
+          h('input',{type:'text',className:'fi',placeholder:'Ej: cargue mañana, devolucion ruta 3',
+            value:desc,onChange:function(e){sDesc(e.target.value);}})
+        ),
+        /* Asignar salida a vendedor */
+        parseInt(salen)>0?h('div',{className:'fg'},
+          h('label',{className:'fl'},'Asignar salida a vendedor (opcional)'),
+          h('select',{className:'fsel',value:vidSel,onChange:function(e){sVidSel(e.target.value);}},
+            h('option',{value:''},'Sin asignar'),
+            p.vendedores.map(function(v){
+              return h('option',{key:v.id,value:v.id},v.nombre);
+            })
+          ),
+          vidSel?h('div',{style:{fontSize:12,color:'var(--verde)',fontWeight:700,marginTop:4}},
+            'Se sumaran '+salen+' botellones al cargue del vendedor'):null
+        ):null,
+        h('button',{className:'btn-g',onClick:registrar,disabled:saving,style:{marginTop:8}},
+          saving?'Guardando...':'Registrar movimiento')
+      ),
+      /* Historial de movimientos */
+      h('div',{className:'card'},
+        h('div',{className:'card-titulo'},'Ultimos movimientos'),
+        ld?h('div',{style:{textAlign:'center',padding:16,color:'var(--gris-dark)'}},'Cargando...'):
+        movs.length===0
+          ?h('div',{className:'empty',style:{padding:'16px 0'}},h('div',{className:'empty-ic'},'📦'),'Sin movimientos'):
+          movs.slice(0,15).map(function(m){
+            var vend=m.vendedor_id?p.vendedores.find(function(v){return v.id===m.vendedor_id;}):null;
+            return h('div',{key:m.id,className:'hi'},
+              h('div',{style:{flex:1}},
+                h('div',{style:{display:'flex',gap:8,alignItems:'center'}},
+                  m.entran>0?h('span',{style:{background:'var(--verde-light)',color:'var(--verde)',borderRadius:6,
+                    padding:'2px 8px',fontSize:12,fontWeight:800}},'+'+m.entran+' entran'):null,
+                  m.salen>0?h('span',{style:{background:'var(--rojo-light)',color:'var(--rojo)',borderRadius:6,
+                    padding:'2px 8px',fontSize:12,fontWeight:800}},'-'+m.salen+' salen'):null
+                ),
+                h('div',{style:{fontSize:11,color:'var(--gris-dark)',fontWeight:600,marginTop:2}},
+                  m.fecha+(m.hora?' '+m.hora:'')+(vend?' → '+vend.nombre:'')+(m.descripcion?' - '+m.descripcion:'')
+                )
+              ),
+              h('div',{style:{fontWeight:900,fontSize:15,color:'var(--azul)',fontFamily:'Space Mono,monospace',flexShrink:0}},
+                m.stock_resultante!==null&&m.stock_resultante!==undefined?m.stock_resultante:'?'
+              )
+            );
+          })
+      )
+    )
+  );
+}
+
 /* ── MODAL CONFIGURAR CARGUE DE BOTELLONES ── */
 function ModalCargue(p) {
   var _nuevo=us('');   var nuevo=_nuevo[0],sNuevo=_nuevo[1];
@@ -999,6 +1207,10 @@ function Vendedor(p) {
   /* Gastos del dia */
   var _sg=us(false); var sg=_sg[0],sSg=_sg[1];
   var _gd=us([]);    var gd=_gd[0],sGastosDia=_gd[1];
+  /* Historial prestados de un cliente */
+  var _shp=us(null); var shp=_shp[0],sShp=_shp[1];
+  /* Ver inventario planta */
+  var _sinv=us(false);var sinv=_sinv[0],sSinv=_sinv[1];
 
   ue(function(){
     (async function(){
@@ -1048,11 +1260,29 @@ function Vendedor(p) {
   var vis2=cl.filter(function(c){return !!vi[c.id];});
   var lista=vt==='p'?pend:vis2;
 
+  /* Mostrar inventario planta si se activo */
+  if(sinv) return h(InventarioPlanta,{
+    vendedores:rt.map(function(r){ return {id:r.id,nombre:r.nombre}; }), /* rutas como proxy - ver nota */
+    onBack:function(){sSinv(false);},
+    onCargueAsignado:function(vidId, cantidad){
+      /* Si la asignacion es para este vendedor, sumar al cargue */
+      if(String(vidId)===String(usr.id)){
+        sCargue(function(prev){return (prev||0)+cantidad;});
+      }
+    }
+  });
+
   /* Mostrar mapa si se activo */
   if(vm) return h(MapaRuta,{clientes:cl,ruta:rs,onBack:function(){sVm(false);}});
 
   if(!rs) return h('div',null,
-    h('div',{className:'header'},h('div',null,h('div',{className:'header-title'},'Ruta del Agua'),h('div',{className:'header-sub'},'Hola, '+usr.nombre)),h('button',{className:'btn-back',onClick:p.onLogout},'Salir')),
+    h('div',{className:'header'},
+      h('div',null,h('div',{className:'header-title'},'Ruta del Agua'),h('div',{className:'header-sub'},'Hola, '+usr.nombre)),
+      h('div',{style:{display:'flex',gap:8}},
+        h('button',{className:'btn-back',onClick:function(){sSinv(true);},style:{fontSize:18,padding:'8px 10px'}},'📦'),
+        h('button',{className:'btn-back',onClick:p.onLogout},'Salir')
+      )
+    ),
     h('div',{className:'page'},h('div',{className:'card'},h('div',{className:'card-titulo'},'Cual ruta trabajas hoy?'),h('div',{className:'ruta-grid'},
       rt.map(function(r){return h('div',{key:r.id,className:'ruta-btn',onClick:function(){selRuta(r.nombre);}},r.nombre,h('span',{className:'ruta-count'},(ct[r.nombre]||0)+' clientes'));})
     )))
@@ -1131,7 +1361,10 @@ function Vendedor(p) {
                 v.presto_botellon?h('div',{style:{fontSize:11,color:'var(--rojo)',fontWeight:700,marginTop:2}},'Presto botellon vacio'):null,
                 v.devolvio_botellon?h('div',{style:{fontSize:11,color:'var(--verde)',fontWeight:700,marginTop:2}},'Devolvio '+v.cantidad_devuelta+' botellon(es)'):null
               ),
-              h('button',{onClick:function(e){e.stopPropagation();sCs(c);},style:{flexShrink:0,background:'var(--naranja)',color:'white',border:'none',borderRadius:10,padding:'8px 12px',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:'Nunito,sans-serif'}},'Editar visita')
+              h('div',{style:{display:'flex',gap:6,flexDirection:'column'}},
+                h('button',{onClick:function(e){e.stopPropagation();sCs(c);},style:{flexShrink:0,background:'var(--naranja)',color:'white',border:'none',borderRadius:10,padding:'8px 12px',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:'Nunito,sans-serif'}},'Editar visita'),
+                c.botellones_prestados>0?h('button',{onClick:function(e){e.stopPropagation();sShp(c);},style:{flexShrink:0,background:'var(--rojo-light)',color:'var(--rojo)',border:'none',borderRadius:10,padding:'6px 10px',fontSize:11,fontWeight:800,cursor:'pointer',fontFamily:'Nunito,sans-serif'}},'🫙 Prestamos'):null
+              )
             )
           ):null
         );
@@ -1155,6 +1388,11 @@ function Vendedor(p) {
       vendorId:usr.id,
       visitas:vArr,
       onClose:function(){sSg(false);}
+    }):null,
+    /* Modal historial de botellones prestados de un cliente */
+    shp?h(ModalHistorialPrestados,{
+      cliente:shp,
+      onClose:function(){sShp(null);}
     }):null
   );
 }
@@ -1199,7 +1437,8 @@ function Admin(p) {
         h('button',{className:'tab'+(tab==='hoy'?' active':''),onClick:function(){sTab('hoy');}},'Hoy'),
         h('button',{className:'tab'+(tab==='clientes'?' active':''),onClick:function(){sTab('clientes');}},'Clientes'),
         h('button',{className:'tab'+(tab==='vendedores'?' active':''),onClick:function(){sTab('vendedores');}},'Vendedores'),
-        h('button',{className:'tab'+(tab==='mapa'?' active':''),onClick:function(){sTab('mapa');},style:{fontSize:11}},'Mapa')
+        h('button',{className:'tab'+(tab==='mapa'?' active':''),onClick:function(){sTab('mapa');},style:{fontSize:11}},'Mapa'),
+        h('button',{className:'tab'+(tab==='inventario'?' active':''),onClick:function(){sTab('inventario');},style:{fontSize:11}},'📦 Bodega')
       ),
       h('div',{className:'badm'},
         h('button',{className:'badm-btn badm-h',onClick:function(){sSh(true);}},'Historial por Fechas'),
@@ -1248,6 +1487,11 @@ function Admin(p) {
         clientes:cl,
         ruta:'Todos los clientes',
         onBack:function(){sTab('hoy');}
+      }):
+      tab==='inventario'?h(InventarioPlanta,{
+        vendedores:vd,
+        onBack:function(){sTab('hoy');},
+        onCargueAsignado:function(){}
       }):
       h('div',{className:'card'},
         h('div',{className:'card-titulo'},'Vendedores - resumen de hoy'),
