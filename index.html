@@ -1265,7 +1265,7 @@ function ModalGastos(p) {
   async function agregar(){
     var v=parseInt(val)||0;
     if(!desc||v<=0){alert('Ingresa descripcion y valor');return;}
-    var hora=new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
+    var hora=new Date().toTimeString().slice(0,5);
     var nuevo=await sb('gastos','POST',{
       vendedor_id:p.vendorId, fecha:hoy(),
       descripcion:desc, valor:v, hora:hora
